@@ -2,7 +2,7 @@ import numpy as np
 
 class Car:
     ''' A class that represents each car as an Agent '''
-    def __init__(self,env,loc=0,v=0):
+    def __init__(self,env,loc=0,v=1):
         self.id = len(env.cars)
         self.env = env # the road
         self.X = env.X # the road length
@@ -13,29 +13,34 @@ class Car:
     def report(self):
         self.env.status[self.loc] = 1
 
-    def observe(self):
-        self.floc = self.env.infoboard[self.loc]
-
     def accelerate(self,by=1):
         self.v = min([(self.v + by),self.X])
+
+    def observe(self):
+        self.floc = self.env.infoboard[self.loc]
 
     def slow_down(self):
         # observe front loc
         fdist = (self.floc - self.loc) % self.X
-        if fdist < self.v:
+        if fdist>0 and fdist < self.v:
             self.accelerate(by=(fdist-self.v))
         # if more than velocity slow down
 
     def move(self):
         self.loc = (self.loc + self.v) % self.X
-        
+    
+    def shock(self,prob):
+        shock_occurs = np.random.choice([True,False],p=[prob,(1-prob)])
+        if shock_occurs:
+            self.accelerate(by=-1)
 
 class Road:
     ''' A class that represents the road / environment '''
-    def __init__(self,X,T):
+    def __init__(self,X,T,p=0.5):
         self.X = X # road length
         self.T = T
         self.N = None # number of cars
+        self.p = p
         self.status = np.zeros(X,dtype=int) # current status
         self.history = np.zeros((T,X),dtype=int) # status archive
         self.infoboard = None
@@ -70,18 +75,14 @@ class Road:
     def play(self,N):
         self.populate(N)
         self.observe()
-        print(self.status)
-        print(self.infoboard)
         self.archive(0)
         for t in range(1,self.T):
-            print(f"time={t}")
             for car in self.cars:
                 car.accelerate()
                 car.observe()
                 car.slow_down()
+                car.shock(self.p)
                 car.move()
                 car.report()
-            print(self.status)
-            print(self.infoboard)
             self.observe()
             self.archive(t)
