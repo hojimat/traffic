@@ -3,8 +3,8 @@ from matplotlib import pyplot as plt
 
 T = 50
 X = 100
-N = 50
-PROB = 0.5
+N = 10
+PROB = 0.0
 
 road = Road(X,T,p=PROB)
 road.play(N)
