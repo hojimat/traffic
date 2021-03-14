@@ -2,115 +2,103 @@ import numpy as np
 
 class Car:
     ''' A class that represents each car as an Agent '''
-    def __init__(self,env,loc=0,v=1):
+    def __init__(self,env,loc=0,v=1,a=1):
         self.id = len(env.cars)
         self.env = env # the road
-        self.X = env.X # the road length
-        self.loc = loc # own location
+        self.x = x # own location
         self.v = v # velocity
+        self.a = a # acceleration plan vector
         self.vf = env.vf
-        self.floc = None #front car's location
-        self.rloc = None #front red light location
+        self.tau = env.tau # reaction time
+        self.c = env.c
+        self.xL = None # Leader's location
+        self.vF = None # Follower's velocity tau periods ago
+        self.vL = None # Leader's velocity tau periods ago
 
     def report(self):
-        self.env.status[self.loc] = 1
-
-    def accelerate(self,by=1):
-        self.v = min([(self.v + by),self.vf])
+        status = {"x": self.x, "v": self.v}
+        self.env.status[self.id] = status
+        #self.env.a[self.id] = self.a
 
     def observe(self):
-        floc = self.env.infoboard[self.loc]
-        redlight = self.env.redlight
-        if floc > self.loc:
-            self.floc = floc
-        else:
-            self.floc = self.X
-        if redlight:
-            self.rloc = 1000
-        else:
-            self.rloc = self.X
+        #xL = self.env.infoboard[self.x]
 
-    def slow_down(self):
-        # observe front loc
-        fdist = self.floc - self.loc
-        if fdist < self.v:
-            self.accelerate(by=(fdist-self.v))
-        # if more than velocity slow down
+        if xL > self.x:
+            self.xL = xL
+        else:
+            self.xL = self.env.X
 
-    def stop_at_red(self):
-        fdist = self.floc - self.loc
-        rdist = self.rloc - self.loc
-        if rdist > 0 and rdist < fdist:
-            self.v = 0
+    def set_velocity(self):
+        vL = self.vL
+        vF = self.vF
+        v = self.v
+        c = self.c
+        tau = self.tau
+        # linear car following model
+        self.a = (c / tau) * (vL - vF)
 
     def move(self):
-        newloc = self.loc + self.v
-        if newloc <= self.X-1 and newloc < self.floc:
-            self.loc = newloc
-    
-    def shock(self,prob):
-        shock_occurs = np.random.choice([True,False],p=[prob,(1-prob)])
-        if shock_occurs:
-            self.accelerate(by=-1)
+        newloc = self.x + self.v
+        if newloc <= self.env.X-1 and newloc < self.xL:
+            self.x = newloc
 
 class Road:
     ''' A class that represents the road / environment '''
-    def __init__(self,X,T,ff,vf,red,p=0.5):
+    def __init__(self,X,T,N,cap,tau,c,vf,p=0.0):
         self.X = X # road length
         self.T = T
-        self.N = None # number of cars
-        self.ff = ff # free flow capacity (<1)
-        self.vf = vf # free flow speed
-        self.red = red
+        self.N = N # number of cars
+        self.cap = cap # free flow capacity
+        self.vf = vf # free flow speed PRETTY SURE SHOULD BE ENDOGENOUS
         self.p = p
-        self.status = np.zeros(X,dtype=int) # current status
-        self.history = np.zeros((X,T),dtype=int) # status archive
+        self.tau = tau
+        self.c = c
+        self.status = [0]*X # current status
+        self.a = np.zeros(N)
+        self.v = np.zeros(N)
+        self.hist_status = np.zeros((X,T),dtype=int) # road status hist
+        self.hist_v = np.zeros((N,T),dtype=int) # velocity hist
+        self.hist_a = np.zeros((N,T),dtype=int) # acceleration hist
         self.infoboard = None
-        self.redlight = False
         self.cars = [] # cars registry
     
-    def populate(self,N):
+    def populate(self):
         '''
         Create cars and place them on the road
         '''
-        self.N = N
+        N = self.N
         locs = None
-        try:
-            ffcapacity = int(self.X*self.ff)
-            locs = np.random.choice(range(ffcapacity),N,replace=False)
-        except ValueError:
-            print("More cars than road capacity.")
-            return(None)
+        cap = self.cap
+        if N > cap:
+            print("More cars than road capacity")
+            return None
+        locs = np.random.choice(range(cap),N,replace=False)
 
         for i in locs:
-           self.cars.append(Car(loc=i,env=self)) 
-           self.status[i] = 1
-          
+            car = Car(x=i,env=self)
+            self.cars.append(car)
+            self.status[i] = {"id":car.id,"v":car.v}
 
     def archive(self,t):
-        self.history[:,t] = self.status
+        self.hist_status[:,t] = self.status
+        self.hist_a[:,t] = self.a
         self.status = np.zeros(self.X,dtype=int)
+        self.a = np.zeros(self.N)
 
-    def observe(self):
-        locs = np.where(self.status>0)[0]
-        flocs = np.roll(locs,-1)
-        self.infoboard = dict(zip(locs,flocs))
+    def scan(self):
+        #locs = np.where(self.status>0)[0]
+        #xLs = np.roll(locs,-1)
+        #self.infoboard = dict(zip(locs,xLs))
 
-    def play(self,N):
-        self.populate(N)
-        self.observe()
+    def play(self):
+        self.populate()
+        self.scan()
         self.archive(0)
         for t in range(1,self.T):
-            if t==self.red:
-                self.redlight = True
-            if t==(self.red+50):
-                self.redlight = False
             for car in self.cars:
-                car.accelerate()
                 car.observe()
-                car.stop_at_red()
-                car.slow_down()
+                car.set_velocity()
                 car.move()
                 car.report()
-            self.observe()
+            self.scan()
             self.archive(t)
